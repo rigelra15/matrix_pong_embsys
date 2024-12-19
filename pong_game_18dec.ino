@@ -41,14 +41,61 @@ const int maxSetWins = 3;
 bool switchPlayer1 = false;
 bool switchPlayer2 = false;
 
+int lastScorer = -1;
+
 unsigned long lastSmashPlayer1 = 0;
 unsigned long lastSmashPlayer2 = 0;
 const unsigned long smashCooldown = 10000;
 
-void displayNumber(int module, int number) {
+void displayNumber(int module, int number, bool player2 = false) {
   lc.clearDisplay(module);
-  for (int row = 0; row < 8; row++) {
-    lc.setRow(module, row, numbers[number][row]);
+  for (int col = 0; col < 8; col++) {
+    byte rotatedData = 0;
+
+    if (player2) {
+      for (int row = 0; row < 8; row++) {
+        // Rotate left 90 degrees
+        if (numbers[number][col] & (1 << (7 - row))) {
+          rotatedData |= (1 << row);
+        }
+      }
+      lc.setColumn(module, col, rotatedData);
+    } else {
+      for (int row = 0; row < 8; row++) {
+        // Rotate right 90 degrees
+        if (numbers[number][row] & (1 << (7 - col))) {
+          rotatedData |= (1 << row);
+        }
+      }
+      lc.setRow(module, col, rotatedData);
+    }
+  }
+
+  // Update indikator jumlah set dimenangkan oleh Player 1
+  for (int i = 0; i < setWinsPlayer1; i++) {
+    int y1 = (i == 0) ? 0 : 3; // Baris 0 untuk set pertama, baris 3 untuk set kedua
+    lc.setLed(3, y1, 0, true); // Kolom 0, baris y1
+    lc.setLed(3, y1 + 1, 0, true); // Kolom 0, baris y1+1
+  }
+
+  // Update indikator jumlah set dimenangkan oleh Player 2
+  for (int i = 0; i < setWinsPlayer2; i++) {
+    int y2 = (i == 0) ? 0 : 3; // Baris 0 untuk set pertama, baris 3 untuk set kedua
+    lc.setLed(0, y2, 7, true); // Kolom 7, baris y2
+    lc.setLed(0, y2 + 1, 7, true); // Kolom 7, baris y2+1
+  }
+
+  // Update indikator smash
+  if (millis() - lastSmashPlayer1 >= smashCooldown) {
+    lc.setLed(3, 0, 7, true); // Indikator smash Player 1
+  } else {
+    lc.setLed(3, 0, 7, false);
+  }
+
+  if (millis() - lastSmashPlayer2 >= smashCooldown) {
+    lc.setLed(0, 0, 0, true); // Indikator smash Player 2
+  } else {
+    lc.setLed(0, 0, 0, false);
   }
 }
 
@@ -110,21 +157,105 @@ void updateSmashIndicator() {
   }
 }
 
-void resetBall() {
-  ballX = random(6, 10);
-  ballY = random(1, 6);
-  ballDirX = (random(0, 2) == 0) ? -1 : 1;
-  ballDirY = (random(0, 2) == 0) ? -1 : 1;
-  ballSpeedDelay = ballSpeedDelayNormal;
+void resetBall(bool randomStart = false) {
+  ballSpeedDelay = ballSpeedDelayNormal; 
+  // Selalu mulai dari posisi tengah matrix 16x8
+  ballX = 7;  // Posisi tengah horizontal
+  ballY = 3;  // Posisi tengah vertikal
 
+  // Tampilkan bola dan paddle selama 2 detik
+  int module = (ballX < 8) ? 2 : 1;
+  int xPos = (ballX < 8) ? ballX : ballX - 8;
 
-  displayNumber(0, scorePlayer2);
-  displayNumber(3, scorePlayer1);
+  for (int i = 0; i < paddleHeight; i++) {
+    lc.setLed(2, paddleY_Player1 + i, 0, true); // Paddle Player 1
+    lc.setLed(1, paddleY_Player2 + i, 7, true); // Paddle Player 2
+  }
 
-  delay(2000);
+  lc.setLed(module, ballY, xPos, true); // Bola di tengah
+  delay(1000);
+
+  // Tentukan arah bola berdasarkan kondisi randomStart atau lastScorer
+  if (randomStart) {
+    // Jika randomStart true, arah bola acak
+    ballDirX = (random(0, 2) == 0) ? -1 : 1;
+    ballDirY = (random(0, 2) == 0) ? -1 : 1;
+  } else if (lastScorer != -1) {
+    // Jika bukan randomStart, arah bola ke pencetak gol terakhir
+    ballDirX = (lastScorer == 0) ? 1 : -1;
+    ballDirY = 0; // Bola menunggu trigger
+  }
+
+  // Tampilkan skor saat ini
+  displayNumber(0, scorePlayer2, true);
+  displayNumber(3, scorePlayer1, false);
+
+  delay(1000); // Delay untuk memberi waktu kepada pemain
+}
+
+void handleGoal(int scorer) {
+  if (scorer == 0) {
+    scorePlayer2++;
+    displayNumber(0, scorePlayer2, true);
+  } else if (scorer == 1) {
+    scorePlayer1++;
+    displayNumber(3, scorePlayer1, false);
+  }
+
+  lastScorer = scorer;
+  Serial.println(lastScorer);
+  playGoalMelody();
+
+  // Update indikator jumlah set dimenangkan oleh Player 1
+  for (int i = 0; i < setWinsPlayer1; i++) {
+    int y1 = (i == 0) ? 0 : 3; // Baris 0 untuk set pertama, baris 3 untuk set kedua
+    lc.setLed(3, y1, 0, true); // Kolom 0, baris y1
+    lc.setLed(3, y1 + 1, 0, true); // Kolom 0, baris y1+1
+  }
+
+  // Update indikator jumlah set dimenangkan oleh Player 2
+  for (int i = 0; i < setWinsPlayer2; i++) {
+    int y2 = (i == 0) ? 0 : 3; // Baris 0 untuk set pertama, baris 3 untuk set kedua
+    lc.setLed(0, y2, 7, true); // Kolom 7, baris y2
+    lc.setLed(0, y2 + 1, 7, true); // Kolom 7, baris y2+1
+  }
+
+  // Update indikator smash
+  if (millis() - lastSmashPlayer1 >= smashCooldown) {
+    lc.setLed(3, 0, 7, true); // Indikator smash Player 1
+  } else {
+    lc.setLed(3, 0, 7, false);
+  }
+
+  if (millis() - lastSmashPlayer2 >= smashCooldown) {
+    lc.setLed(0, 0, 0, true); // Indikator smash Player 2
+  } else {
+    lc.setLed(0, 0, 0, false);
+  }
+
+  resetBall();
+}
+
+void startBall() {
+  if ((lastScorer == 0 && switchPlayer1) || (lastScorer == 1 && switchPlayer2)) {
+    ballDirY = (random(0, 2) == 0) ? -1 : 1; // Assign Y direction randomly
+  }
 }
 
 void checkSetWinner() {
+  // Update indikator jumlah set dimenangkan oleh Player 1
+  for (int i = 0; i < setWinsPlayer1; i++) {
+    int y1 = (i == 0) ? 0 : 3; // Baris 0 untuk set pertama, baris 3 untuk set kedua
+    lc.setLed(3, y1, 0, true); // Kolom 0, baris y1
+    lc.setLed(3, y1 + 1, 0, true); // Kolom 0, baris y1+1
+  }
+
+  // Update indikator jumlah set dimenangkan oleh Player 2
+  for (int i = 0; i < setWinsPlayer2; i++) {
+    int y2 = (i == 0) ? 0 : 3; // Baris 0 untuk set pertama, baris 3 untuk set kedua
+    lc.setLed(0, y2, 7, true); // Kolom 7, baris y2
+    lc.setLed(0, y2 + 1, 7, true); // Kolom 7, baris y2+1
+  }
 
   if (scorePlayer1 >= 11 && (scorePlayer1 - scorePlayer2) >= 2) {
     setWinsPlayer1++;
@@ -134,7 +265,6 @@ void checkSetWinner() {
     }
   }
 
-
   if (scorePlayer2 >= 11 && (scorePlayer2 - scorePlayer1) >= 2) {
     setWinsPlayer2++;
     Serial.println("Player 2 Wins the Set!");
@@ -143,60 +273,68 @@ void checkSetWinner() {
     }
   }
 
-
   if (setWinsPlayer1 == maxSetWins) {
     Serial.println("Player 1 Wins the Match!");
-    
+
     lc.clearDisplay(0);
     lc.clearDisplay(1);
     lc.clearDisplay(2);
     lc.clearDisplay(3);
 
-    showWinner(1);  
-    delay(50);      
+    showWinner(1);
+    delay(50);
     playWinningMelody();
-    while (true) {} 
+    while (true) {}
   }
 
   if (setWinsPlayer2 == maxSetWins) {
     Serial.println("Player 2 Wins the Match!");
-    
+
     lc.clearDisplay(0);
     lc.clearDisplay(1);
     lc.clearDisplay(2);
     lc.clearDisplay(3);
 
-    showWinner(2);  
-    delay(50);      
+    showWinner(2);
+    delay(50);
     playWinningMelody();
-    while (true) {} 
+    while (true) {}
   }
 }
 
-void blinkScore(int module, int score) {
 
-  for (int i = 0; i < 5; i++) {
-    displayNumber(module, score);
-    delay(200);
-    lc.clearDisplay(module);
-    delay(200);
+void blinkScore(int module, int score, bool player2) {
+  if (player2) {
+    for (int i = 0; i < 5; i++) {
+      displayNumber(module, score, true);
+      delay(200);
+      lc.clearDisplay(module);
+      delay(200);
+    }
+    displayNumber(module, score, true);
+  } else {
+    for (int i = 0; i < 5; i++) {
+      displayNumber(module, score, false);
+      delay(200);
+      lc.clearDisplay(module);
+      delay(200);
+    }
+    displayNumber(module, score, false);
   }
-  displayNumber(module, score);
 }
 
 void resetSet() {
 
   if (scorePlayer1 >= 11 && (scorePlayer1 - scorePlayer2) >= 2) {
-    blinkScore(3, scorePlayer1);
+    blinkScore(3, scorePlayer1, false);
   } else if (scorePlayer2 >= 11 && (scorePlayer2 - scorePlayer1) >= 2) {
-    blinkScore(0, scorePlayer2);
+    blinkScore(0, scorePlayer2, true);
   }
-
 
   scorePlayer1 = 0;
   scorePlayer2 = 0;
-  displayNumber(0, scorePlayer2);
-  displayNumber(3, scorePlayer1);
+  displayNumber(0, scorePlayer2, true);
+  displayNumber(3, scorePlayer1, false);
   
   delay(1000);
   resetBall();
@@ -260,28 +398,22 @@ void setup() {
 
   showCountdown();
 
-  displayNumber(0, scorePlayer2);
-  displayNumber(3, scorePlayer1);
-  
-  resetBall();
+  displayNumber(0, scorePlayer2, true);
+  displayNumber(3, scorePlayer1, false);
 }
 
 void loop() {
   static int lastBallX = -1, lastBallY = -1;
-
 
   paddleY_Player1 = map(analogRead(POT_PIN_PLAYER1), 0, 4095, 0, 5);
   paddleY_Player2 = map(analogRead(POT_PIN_PLAYER2), 0, 4095, 0, 5);
   switchPlayer1 = digitalRead(SWITCH_PIN_PLAYER1);
   switchPlayer2 = digitalRead(SWITCH_PIN_PLAYER2);
 
-
   updateSmashIndicator();
-
 
   if (millis() - lastBallMoveTime >= ballSpeedDelay) {
     lastBallMoveTime = millis();
-
   
     if (lastBallX >= 0) {
       int prevModule = (lastBallX < 8) ? 2 : 1;
@@ -289,10 +421,8 @@ void loop() {
       lc.setLed(prevModule, lastBallY, prevXPos, false);
     }
 
-  
     ballX += ballDirX;
     ballY += ballDirY;
-
   
     if (ballY == 0 || ballY == 7) {
       ballDirY = -ballDirY;
@@ -334,16 +464,10 @@ void loop() {
 
   
     if (ballX < 0) {
-      scorePlayer2++;
-      playGoalMelody();
-      displayNumber(0, scorePlayer2);
-      resetBall();
+      handleGoal(0);
     }
     if (ballX > 15) {
-      scorePlayer1++;
-      playGoalMelody();
-      displayNumber(3, scorePlayer1);
-      resetBall();
+      handleGoal(1);
     }
 
   
